@@ -1,0 +1,240 @@
+{
+  "format": "elektro-baukasten-plan",
+  "version": 1,
+  "components": [
+    {
+      "uid": "comp_57a5f6374980",
+      "comp_id": "resistor",
+      "x": 2000.0,
+      "y": 1360.0,
+      "rotation": 90.0,
+      "scale": 1.0,
+      "ports": [
+        {
+          "name": "IN1",
+          "kind": "in",
+          "x": 10,
+          "y": 30
+        },
+        {
+          "name": "OUT1",
+          "kind": "out",
+          "x": 90,
+          "y": 30
+        }
+      ]
+    },
+    {
+      "uid": "comp_f4630008181b",
+      "comp_id": "capacitor",
+      "x": 2120.0,
+      "y": 1540.0,
+      "rotation": 90.0,
+      "scale": 1.0,
+      "ports": [
+        {
+          "name": "IN1",
+          "kind": "in",
+          "x": 10,
+          "y": 30
+        },
+        {
+          "name": "OUT1",
+          "kind": "out",
+          "x": 90,
+          "y": 30
+        }
+      ]
+    },
+    {
+      "uid": "comp_7ad02b41856a",
+      "comp_id": "npn",
+      "x": 1960.0,
+      "y": 1540.0,
+      "rotation": 0.0,
+      "scale": 1.0,
+      "ports": [
+        {
+          "name": "IN1",
+          "kind": "in",
+          "x": 10,
+          "y": 30
+        },
+        {
+          "name": "OUT1",
+          "kind": "out",
+          "x": 90,
+          "y": 10
+        },
+        {
+          "name": "OUT2",
+          "kind": "out",
+          "x": 90,
+          "y": 50
+        }
+      ]
+    }
+  ],
+  "wires": [
+    {
+      "uid": "wire_e2a365e5fb91",
+      "x1": 2050.0,
+      "y1": 1430.0,
+      "x2": 2050.0,
+      "y2": 1550.0
+    },
+    {
+      "uid": "wire_a22c35a6b8ed",
+      "x1": 1970.0,
+      "y1": 1570.0,
+      "x2": 1910.0,
+      "y2": 1570.0
+    },
+    {
+      "uid": "wire_49146997488f",
+      "x1": 2050.0,
+      "y1": 1350.0,
+      "x2": 2050.0,
+      "y2": 1290.0
+    },
+    {
+      "uid": "wire_93a85c82bd84",
+      "x1": 2150.0,
+      "y1": 1470.0,
+      "x2": 2150.0,
+      "y2": 1470.0
+    },
+    {
+      "uid": "wire_546fc55c6213",
+      "x1": 2050.0,
+      "y1": 1490.0,
+      "x2": 2250.0,
+      "y2": 1490.0
+    },
+    {
+      "uid": "wire_06e3fc1ae962",
+      "x1": 2050.0,
+      "y1": 1290.0,
+      "x2": 2170.0,
+      "y2": 1290.0
+    },
+    {
+      "uid": "wire_119c9c4e472f",
+      "x1": 2170.0,
+      "y1": 1290.0,
+      "x2": 2170.0,
+      "y2": 1530.0
+    },
+    {
+      "uid": "wire_37843e0bbf3b",
+      "x1": 2170.0,
+      "y1": 1670.0,
+      "x2": 2170.0,
+      "y2": 1610.0
+    },
+    {
+      "uid": "wire_236f0aff42bf",
+      "x1": 2050.0,
+      "y1": 1670.0,
+      "x2": 2050.0,
+      "y2": 1590.0
+    },
+    {
+      "uid": "wire_93c2aa0db8ea",
+      "x1": 2250.0,
+      "y1": 1670.0,
+      "x2": 1910.0,
+      "y2": 1670.0
+    }
+  ],
+  "connections": [
+    {
+      "source_type": "wire",
+      "source_uid": "wire_e2a365e5fb91",
+      "source_anchor": "start",
+      "target_type": "component",
+      "target_uid": "comp_57a5f6374980",
+      "target_anchor": "OUT1"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_e2a365e5fb91",
+      "source_anchor": "end",
+      "target_type": "component",
+      "target_uid": "comp_7ad02b41856a",
+      "target_anchor": "OUT1"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_a22c35a6b8ed",
+      "source_anchor": "start",
+      "target_type": "component",
+      "target_uid": "comp_7ad02b41856a",
+      "target_anchor": "IN1"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_49146997488f",
+      "source_anchor": "start",
+      "target_type": "component",
+      "target_uid": "comp_57a5f6374980",
+      "target_anchor": "IN1"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_49146997488f",
+      "source_anchor": "end",
+      "target_type": "wire",
+      "target_uid": "wire_06e3fc1ae962",
+      "target_anchor": "start"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_06e3fc1ae962",
+      "source_anchor": "start",
+      "target_type": "wire",
+      "target_uid": "wire_49146997488f",
+      "target_anchor": "end"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_06e3fc1ae962",
+      "source_anchor": "end",
+      "target_type": "wire",
+      "target_uid": "wire_119c9c4e472f",
+      "target_anchor": "start"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_119c9c4e472f",
+      "source_anchor": "start",
+      "target_type": "wire",
+      "target_uid": "wire_06e3fc1ae962",
+      "target_anchor": "end"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_119c9c4e472f",
+      "source_anchor": "end",
+      "target_type": "component",
+      "target_uid": "comp_f4630008181b",
+      "target_anchor": "IN1"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_37843e0bbf3b",
+      "source_anchor": "end",
+      "target_type": "component",
+      "target_uid": "comp_f4630008181b",
+      "target_anchor": "OUT1"
+    },
+    {
+      "source_type": "wire",
+      "source_uid": "wire_236f0aff42bf",
+      "source_anchor": "end",
+      "target_type": "component",
+      "target_uid": "comp_7ad02b41856a",
+      "target_anchor": "OUT2"
+    }
+  ]
+}

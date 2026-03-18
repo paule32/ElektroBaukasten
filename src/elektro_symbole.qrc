@@ -1,0 +1,12 @@
+<RCC>
+  <qresource prefix="/symbole">
+    <file>svg/and.svg</file>
+    <file>svg/battery.svg</file>
+    <file>svg/led.svg</file>
+    <file>svg/nand.svg</file>
+    <file>svg/not.svg</file>
+    <file>svg/or.svg</file>
+    <file>svg/resistor.svg</file>
+    <file>svg/xor.svg</file>
+  </qresource>
+</RCC>
