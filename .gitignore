@@ -26,3 +26,8 @@ src/qt5_mdi_schaltplan_editor_v8.py
 src/qt5_mdi_schaltplan_editor_v9.py
 src/schaltplan.sqlite3
 src/start.py
+qt5_mdi_schaltplan_editor_workspaces_v2.py
+src/qt5_mdi_schaltplan_editor_workspaces.py
+src/qt5_mdi_schaltplan_editor_workspaces_extended.py
+src/schalt.py/qt5_mdi_schaltplan_editor_workspaces_extended.py
+src/svg/README.txt

@@ -24,7 +24,7 @@ from PyQt5.QtCore    import (
     QPointF, QRectF, QSize, Qt, pyqtSignal, QFile, QByteArray,
 )
 from PyQt5.QtGui     import (
-    QBrush, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+    QBrush, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF,
 )
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import (
@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
     QGraphicsItem, QGraphicsObject, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem,
     QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QMainWindow, QMdiArea, QMdiSubWindow, QMenu, QMessageBox, QStyle,
-    QStatusBar, QTabWidget, QToolBar, QVBoxLayout, QWidget, QLineEdit,
+    QStatusBar, QTabWidget, QToolBar, QVBoxLayout, QWidget, QLineEdit, QPushButton, QInputDialog,
 )
 
 import elektro_symbole
@@ -521,6 +521,17 @@ class WireItem(QGraphicsObject):
         self.scene_ref.refresh_after_geometry_change()
         super().mouseReleaseEvent(event)
 
+class PortLabelItem(QGraphicsTextItem):
+    def __init__(self, text: str, parent=None):
+        super().__init__(text, parent)
+        self.setDefaultTextColor(QColor("#f0f0f0"))
+        font = self.font()
+        font.setPointSize(7)
+        self.setFont(font)
+        self.setZValue(3)
+
+
+
 class ComponentItem(QGraphicsPixmapItem):
     def __init__(self, scene: "SchematicScene", comp_def: ComponentDef, pos: QPointF):
         super().__init__()
@@ -528,7 +539,10 @@ class ComponentItem(QGraphicsPixmapItem):
         self.scene_ref = scene
         self.comp_def = comp_def
         self.port_items: Dict[str, PortDotItem] = {}
+        self.port_labels: Dict[str, PortLabelItem] = {}
         self.anchor_nodes: Dict[str, AnchorNode] = {}
+        self.port_layout_mode = "default"
+        self.custom_port_positions: Dict[str, Tuple[int, int]] = {}
         self.rotation_state = 0
         self.flipped_vertical = False
         self.setPixmap(self.load_pixmap())
@@ -543,7 +557,57 @@ class ComponentItem(QGraphicsPixmapItem):
         for port in comp_def.ports:
             self.anchor_nodes[port.name] = AnchorNode(scene, self, port.name, "component")
             self.port_items[port.name] = PortDotItem(port.x, port.y, port.kind, self)
+            self.port_labels[port.name] = PortLabelItem(port.name, self)
         self.refresh_port_positions()
+
+
+    def is_seven_segment(self) -> bool:
+        return self.comp_def.comp_id in {"display7_single", "display7_double", "display7_quad"}
+
+    def port_position(self, anchor_name: str) -> QPointF:
+        if anchor_name in self.custom_port_positions:
+            x, y = self.custom_port_positions[anchor_name]
+            return QPointF(x, y)
+        for port in self.comp_def.ports:
+            if port.name == anchor_name:
+                return QPointF(port.x, port.y)
+        return QPointF(0, 0)
+
+    def all_port_names(self):
+        return [p.name for p in self.comp_def.ports]
+
+    def apply_display_pin_layout(self, mode: str):
+        width, height = self.comp_def.size
+        self.port_layout_mode = mode
+        self.custom_port_positions = {}
+        if not self.is_seven_segment():
+            self.refresh_port_positions()
+            self.scene_ref.update_component_links(self)
+            self.scene_ref.refresh_after_geometry_change()
+            return
+
+        names = self.all_port_names()
+        if mode == "left":
+            step = GRID * 2 if self.comp_def.comp_id == "display7_single" else GRID
+            for i, name in enumerate(names):
+                self.custom_port_positions[name] = (GRID // 2, GRID // 2 + i * step)
+        elif mode == "right":
+            step = GRID * 2 if self.comp_def.comp_id == "display7_single" else GRID
+            for i, name in enumerate(names):
+                self.custom_port_positions[name] = (width - GRID // 2, GRID // 2 + i * step)
+        elif mode == "top":
+            usable = max(1, len(names))
+            step = max(GRID, int((width - GRID) / usable))
+            for i, name in enumerate(names):
+                self.custom_port_positions[name] = (GRID // 2 + i * step, GRID // 2)
+        elif mode == "bottom":
+            usable = max(1, len(names))
+            step = max(GRID, int((width - GRID) / usable))
+            for i, name in enumerate(names):
+                self.custom_port_positions[name] = (GRID // 2 + i * step, height - GRID // 2)
+        self.refresh_port_positions()
+        self.scene_ref.update_component_links(self)
+        self.scene_ref.refresh_after_geometry_change()
 
     def load_pixmap(self) -> QPixmap:
         w, h = self.comp_def.size
@@ -554,21 +618,134 @@ class ComponentItem(QGraphicsPixmapItem):
         painter.setPen(QPen(QColor("#d4af37"), 2))
         painter.setBrush(QBrush(QColor("#2b2b2b")))
         painter.drawRoundedRect(4, 4, w - 8, h - 8, 10, 10)
-        painter.setPen(QColor("#f0f0f0"))
-        painter.drawText(pm.rect(), Qt.AlignCenter, self.comp_def.label)
+
+        if self.comp_def.comp_id in {"display7_single", "display7_double", "display7_quad"}:
+            painter.setPen(QPen(QColor("#bcbcbc"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            painter.setBrush(QBrush(QColor("#f2f2f2")))
+
+            def draw_segment_polygon(points, label=None, label_pos=None):
+                poly = QPolygonF([QPointF(x, y) for x, y in points])
+                painter.drawPolygon(poly)
+                if label and label_pos:
+                    painter.setPen(QColor("#303030"))
+                    painter.drawText(QRectF(label_pos[0] - 8, label_pos[1] - 8, 16, 16), Qt.AlignCenter, label)
+                    painter.setPen(QPen(QColor("#bcbcbc"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+
+            def draw_digit_symbol(x0: int, y0: int, dw: int, dh: int, show_dp: bool = True):
+                left = x0 + 6
+                right = x0 + dw - 6
+                top = y0 + 6
+                bottom = y0 + dh - 6
+                mid = (top + bottom) / 2
+                t = max(7, int(dw * 0.14))
+                s = max(7, int(dw * 0.13))
+
+                inner_w = max(12, dw - 42)
+                painter.fillRect(QRectF(x0 + (dw - inner_w) / 2, y0 + 18, inner_w, max(10, dh * 0.28)), QColor("#050505"))
+                painter.fillRect(QRectF(x0 + (dw - inner_w) / 2, mid + 6, inner_w, max(10, dh * 0.25)), QColor("#050505"))
+
+                # a
+                draw_segment_polygon([
+                    (left + 12, top), (right - 12, top), (right - 4, top + t),
+                    (left + 4, top + t)
+                ], "a", ((left + right) / 2, top + t / 2))
+                # g
+                draw_segment_polygon([
+                    (left + 12, mid - t / 2), (right - 12, mid - t / 2), (right - 4, mid + t / 2),
+                    (left + 4, mid + t / 2)
+                ], "g", ((left + right) / 2, mid))
+                # d
+                draw_segment_polygon([
+                    (left + 12, bottom - t), (right - 12, bottom - t), (right - 4, bottom),
+                    (left + 4, bottom)
+                ], "d", ((left + right) / 2, bottom - t / 2))
+                # f
+                draw_segment_polygon([
+                    (left, top + 12), (left + s, top + 4), (left + s, mid - 10),
+                    (left, mid - 2), (left - 1, mid - 8), (left - 1, top + 18)
+                ], "f", (left + s / 2 - 1, (top + mid) / 2 - 4))
+                # b
+                draw_segment_polygon([
+                    (right, top + 12), (right + 1, top + 18), (right + 1, mid - 8),
+                    (right, mid - 2), (right - s, mid - 10), (right - s, top + 4)
+                ], "b", (right - s / 2 + 1, (top + mid) / 2 - 4))
+                # e
+                draw_segment_polygon([
+                    (left, mid + 2), (left + s, mid + 10), (left + s, bottom - 4),
+                    (left, bottom - 12), (left - 1, bottom - 18), (left - 1, mid + 8)
+                ], "e", (left + s / 2 - 1, (mid + bottom) / 2 + 4))
+                # c
+                draw_segment_polygon([
+                    (right, mid + 2), (right + 1, mid + 8), (right + 1, bottom - 18),
+                    (right, bottom - 12), (right - s, bottom - 4), (right - s, mid + 10)
+                ], "c", (right - s / 2 + 1, (mid + bottom) / 2 + 4))
+
+                # feine Gegenstücke / Gegenkanten für schaltbildnahe Symmetrie
+                painter.setPen(QPen(QColor("#8f8f8f"), 1))
+                painter.drawLine(QPointF(left + 10, top + 1), QPointF(right - 10, top + 1))
+                painter.drawLine(QPointF(left + 10, bottom - 1), QPointF(right - 10, bottom - 1))
+                painter.drawLine(QPointF(left + 1, top + 16), QPointF(left + 1, mid - 6))
+                painter.drawLine(QPointF(right - 1, top + 16), QPointF(right - 1, mid - 6))
+                painter.drawLine(QPointF(left + 1, mid + 6), QPointF(left + 1, bottom - 16))
+                painter.drawLine(QPointF(right - 1, mid + 6), QPointF(right - 1, bottom - 16))
+                painter.setPen(QPen(QColor("#bcbcbc"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+
+                if show_dp:
+                    painter.setBrush(QBrush(QColor("#d0d0d0")))
+                    painter.setPen(QPen(QColor("#9a9a9a"), 2))
+                    dp_rect = QRectF(right - 4, bottom - 4, 20, 20)
+                    painter.drawEllipse(dp_rect)
+                    painter.setPen(QColor("#303030"))
+                    painter.drawText(dp_rect, Qt.AlignCenter, "dp")
+                    painter.setPen(QPen(QColor("#bcbcbc"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    painter.setBrush(QBrush(QColor("#f2f2f2")))
+
+            count = 1
+            if self.comp_def.comp_id == "display7_double":
+                count = 2
+            elif self.comp_def.comp_id == "display7_quad":
+                count = 4
+
+            inner_margin = max(10, int(w * 0.05))
+            gap = max(12, int(w * 0.025))
+            avail_w = w - inner_margin * 2 - gap * (count - 1)
+            digit_w = max(60, int((avail_w / count) * 0.46))
+            digit_h = max(70, int((h - 24) * 0.52))
+            total_digits_w = count * digit_w + (count - 1) * gap
+            start_x = (w - total_digits_w) / 2
+            y0 = (h - digit_h) / 2 - 4
+
+            for i in range(count):
+                x0 = start_x + i * (digit_w + gap)
+                draw_digit_symbol(int(x0), int(y0), int(digit_w), int(digit_h), show_dp=True)
+        else:
+            painter.setPen(QColor("#f0f0f0"))
+            painter.drawText(pm.rect(), Qt.AlignCenter, self.comp_def.label)
+
         painter.end()
         return pm
 
     def anchor_scene_pos(self, anchor_name: str) -> QPointF:
-        for port in self.comp_def.ports:
-            if port.name == anchor_name:
-                return self.mapToScene(QPointF(port.x, port.y))
-        return self.pos()
+        return self.mapToScene(self.port_position(anchor_name))
 
     def refresh_port_positions(self):
+        width = self.comp_def.size[0]
+        height = self.comp_def.size[1]
         for port in self.comp_def.ports:
+            pos = self.port_position(port.name)
             if port.name in self.port_items:
-                self.port_items[port.name].setPos(port.x, port.y)
+                self.port_items[port.name].setPos(pos.x(), pos.y())
+            if port.name in self.port_labels:
+                label_item = self.port_labels[port.name]
+                br = label_item.boundingRect()
+                if pos.x() <= GRID:
+                    label_item.setPos(pos.x() + 10, pos.y() - br.height() / 2)
+                elif pos.x() >= width - GRID:
+                    label_item.setPos(pos.x() - br.width() - 10, pos.y() - br.height() / 2)
+                elif pos.y() <= GRID:
+                    label_item.setPos(pos.x() - br.width() / 2, pos.y() + 8)
+                else:
+                    label_item.setPos(pos.x() - br.width() / 2, pos.y() - br.height() - 8)
 
     def rotate_component(self, delta_degrees: int):
         self.rotation_state = (self.rotation_state + delta_degrees) % 360
@@ -591,6 +768,14 @@ class ComponentItem(QGraphicsPixmapItem):
         action_left = menu.addAction("links drehen")
         action_right = menu.addAction("rechts drehen")
         action_vertical = menu.addAction("vertikal drehen")
+        seg_left = seg_right = seg_top = seg_bottom = None
+        if self.is_seven_segment():
+            menu.addSeparator()
+            seg_menu = menu.addMenu("Pin-Anordnung 7-Segment")
+            seg_left = seg_menu.addAction("Pins links")
+            seg_right = seg_menu.addAction("Pins rechts")
+            seg_top = seg_menu.addAction("Pins oben")
+            seg_bottom = seg_menu.addAction("Pins unten")
         menu.addSeparator()
         action_delete = menu.addAction("Löschen")
         chosen = menu.exec_(event.screenPos())
@@ -604,6 +789,22 @@ class ComponentItem(QGraphicsPixmapItem):
             return
         if chosen == action_vertical:
             self.rotate_component(90 if (self.rotation_state % 180 == 0) else -90)
+            event.accept()
+            return
+        if chosen == seg_left:
+            self.apply_display_pin_layout("left")
+            event.accept()
+            return
+        if chosen == seg_right:
+            self.apply_display_pin_layout("right")
+            event.accept()
+            return
+        if chosen == seg_top:
+            self.apply_display_pin_layout("top")
+            event.accept()
+            return
+        if chosen == seg_bottom:
+            self.apply_display_pin_layout("bottom")
             event.accept()
             return
         if chosen == action_delete:
@@ -640,17 +841,22 @@ class ComponentItem(QGraphicsPixmapItem):
 
 
 
+
 class ComponentPalette(QWidget):
     componentSelected = pyqtSignal(object)
     connectionActivated = pyqtSignal(object)
     pathActivated = pyqtSignal(object)
     librarySelected = pyqtSignal(object)
+    workspaceAddRequested = pyqtSignal()
+    workspaceCopyRequested = pyqtSignal()
+    workspacePasteRequested = pyqtSignal()
+    workspaceDeleteRequested = pyqtSignal()
+    workspaceActivated = pyqtSignal(str)
 
     def __init__(self, components: List[ComponentDef], parent=None):
         super().__init__(parent)
         self.components = components
         self.favorite_ids = set()
-
         self.category_map = {
             "Favoriten": [],
             "Passiv": [
@@ -659,55 +865,22 @@ class ComponentPalette(QWidget):
                 "inductor", "choke"
             ],
             "Quellen": ["battery", "voltage_source", "current_source", "solar_cell"],
-            "Schalter": [
-                "switch_open", "switch_closed", "fuse",
-                "spst", "spdt", "spco", "sptt", "sp3t", "dpst", "dpdt", "dpco"
-            ],
+            "Schalter": ["switch_open", "switch_closed", "fuse", "spst", "spdt", "spco", "sptt", "sp3t", "dpst", "dpdt", "dpco"],
             "Logik": ["and_gate", "or_gate", "xor_gate", "nand_gate", "nor_gate", "xnor_gate", "not_gate"],
-            "Halbleiter": [
-                "diode", "led", "zener", "schottky_diode", "diac", "triac", "magnet_diode",
-                "npn", "pnp"
-            ],
+            "ICs": ["dual_d_flipflop_4013", "ic_4014", "ic_4017", "ic_4020", "ic_4025", "ic_4026", "ic_4040", "ic_4511", "ne555_timer"],
+            "Anzeigen": ["display7_single", "display7_double", "display7_quad"],
+            "LEDs": ["led", "white_led", "green_led", "blue_led", "yellow_led"],
+            "Halbleiter": ["diode", "zener", "schottky_diode", "diac", "triac", "magnet_diode", "npn", "pnp"],
             "Sensorik": ["piezo", "light_barrier"],
             "Aktoren": ["lamp", "relay", "electromagnet", "speaker"],
             "Analog": ["opamp", "amplifier", "transformer", "quartz", "microphone", "ground"],
         }
-
         self.library_map = {
             "Transistoren-Schaltungen": [
-                {
-                    "name": "Emitterschaltung",
-                    "components": [
-                        {"ref": "Q1", "comp_id": "npn", "x": 0, "y": 0},
-                        {"ref": "RC", "comp_id": "resistor", "x": 140, "y": -60},
-                        {"ref": "RE", "comp_id": "resistor", "x": 140, "y": 60},
-                    ],
-                    "wires": [
-                        {"from": ["Q1", "OUT1"], "to": ["RC", "IN1"]},
-                        {"from": ["Q1", "OUT2"], "to": ["RE", "IN1"]},
-                    ],
-                },
-                {
-                    "name": "Kollektorschaltung",
-                    "components": [
-                        {"ref": "Q1", "comp_id": "npn", "x": 0, "y": 0},
-                        {"ref": "RE", "comp_id": "resistor", "x": 140, "y": 0},
-                    ],
-                    "wires": [
-                        {"from": ["Q1", "OUT2"], "to": ["RE", "IN1"]},
-                    ],
-                },
-                {
-                    "name": "Basisschaltung",
-                    "components": [
-                        {"ref": "Q1", "comp_id": "npn", "x": 0, "y": 0},
-                        {"ref": "RC", "comp_id": "resistor", "x": 140, "y": -60},
-                    ],
-                    "wires": [
-                        {"from": ["Q1", "OUT1"], "to": ["RC", "IN1"]},
-                    ],
-                },
-            ],
+                {"name": "Emitterschaltung", "components": [{"ref":"Q1","comp_id":"npn","x":0,"y":0},{"ref":"RC","comp_id":"resistor","x":140,"y":-60},{"ref":"RE","comp_id":"resistor","x":140,"y":60}], "wires":[{"from":["Q1","OUT1"],"to":["RC","IN1"]},{"from":["Q1","OUT2"],"to":["RE","IN1"]}]},
+                {"name": "Kollektorschaltung", "components": [{"ref":"Q1","comp_id":"npn","x":0,"y":0},{"ref":"RE","comp_id":"resistor","x":140,"y":0}], "wires":[{"from":["Q1","OUT2"],"to":["RE","IN1"]}]},
+                {"name": "Basisschaltung", "components": [{"ref":"Q1","comp_id":"npn","x":0,"y":0},{"ref":"RC","comp_id":"resistor","x":140,"y":-60}], "wires":[{"from":["Q1","OUT1"],"to":["RC","IN1"]}]},
+            ]
         }
 
         layout = QVBoxLayout(self)
@@ -715,23 +888,19 @@ class ComponentPalette(QWidget):
         layout.setSpacing(6)
 
         self.main_tabs = QTabWidget()
-        layout.addWidget(self.main_tabs)
+        layout.addWidget(self.main_tabs, 3)
 
-        # Komponenten
         components_page = QWidget()
         components_layout = QVBoxLayout(components_page)
         components_layout.setContentsMargins(2, 2, 2, 2)
         components_layout.setSpacing(6)
-
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Komponente suchen ...")
         components_layout.addWidget(self.search_edit)
-
         self.category_tabs = QTabWidget()
         components_layout.addWidget(self.category_tabs, 1)
         self.main_tabs.addTab(components_page, "Komponenten")
 
-        # Bibliothek
         library_page = QWidget()
         library_layout = QVBoxLayout(library_page)
         library_layout.setContentsMargins(2, 2, 2, 2)
@@ -740,7 +909,6 @@ class ComponentPalette(QWidget):
         library_layout.addWidget(self.library_tabs, 1)
         self.main_tabs.addTab(library_page, "Bibliothek")
 
-        # Netze
         nets_page = QWidget()
         nets_layout = QVBoxLayout(nets_page)
         nets_layout.setContentsMargins(2, 2, 2, 2)
@@ -750,7 +918,6 @@ class ComponentPalette(QWidget):
         nets_layout.addWidget(self.connections_list, 1)
         self.main_tabs.addTab(nets_page, "Netze")
 
-        # Pfade
         paths_page = QWidget()
         paths_layout = QVBoxLayout(paths_page)
         paths_layout.setContentsMargins(2, 2, 2, 2)
@@ -760,6 +927,19 @@ class ComponentPalette(QWidget):
         paths_layout.addWidget(self.paths_list, 1)
         self.main_tabs.addTab(paths_page, "Pfade")
 
+        layout.addWidget(QLabel("Arbeitsflächen"))
+        self.workspace_list = QListWidget()
+        layout.addWidget(self.workspace_list, 1)
+
+        btn_row = QHBoxLayout()
+        self.btn_add = QPushButton("Add")
+        self.btn_copy = QPushButton("Copy")
+        self.btn_paste = QPushButton("Paste")
+        self.btn_delete = QPushButton("Delete")
+        for btn in (self.btn_add, self.btn_copy, self.btn_paste, self.btn_delete):
+            btn_row.addWidget(btn)
+        layout.addLayout(btn_row)
+
         self.category_lists = {}
         self.library_lists = {}
         self.build_category_tabs()
@@ -768,30 +948,31 @@ class ComponentPalette(QWidget):
         self.search_edit.textChanged.connect(self.apply_filter)
         self.connections_list.itemClicked.connect(self.on_connection_clicked)
         self.paths_list.itemClicked.connect(self.on_path_clicked)
+        self.workspace_list.itemClicked.connect(self.on_workspace_clicked)
+        self.workspace_list.itemDoubleClicked.connect(self.on_workspace_double_clicked)
+        self.btn_add.clicked.connect(self.workspaceAddRequested)
+        self.btn_copy.clicked.connect(self.workspaceCopyRequested)
+        self.btn_paste.clicked.connect(self.workspacePasteRequested)
+        self.btn_delete.clicked.connect(self.workspaceDeleteRequested)
 
     def build_category_tabs(self):
         while self.category_tabs.count():
             self.category_tabs.removeTab(0)
         self.category_lists.clear()
-
         for category_name in self.category_map.keys():
             lw = QListWidget()
             lw.setIconSize(QSize(48, 48))
             lw.itemClicked.connect(self.on_item_clicked)
             lw.setContextMenuPolicy(Qt.CustomContextMenu)
-            lw.customContextMenuRequested.connect(
-                lambda pos, list_widget=lw: self.show_component_context_menu(list_widget, pos)
-            )
+            lw.customContextMenuRequested.connect(lambda pos, list_widget=lw: self.show_component_context_menu(list_widget, pos))
             self.category_lists[category_name] = lw
             self.category_tabs.addTab(lw, category_name)
-
         self.refresh_component_lists()
 
     def build_library_tabs(self):
         while self.library_tabs.count():
             self.library_tabs.removeTab(0)
         self.library_lists.clear()
-
         for category_name, templates in self.library_map.items():
             lw = QListWidget()
             for template in templates:
@@ -805,17 +986,14 @@ class ComponentPalette(QWidget):
     def refresh_component_lists(self):
         comp_by_id = {comp.comp_id: comp for comp in self.components}
         self.category_map["Favoriten"] = sorted(self.favorite_ids)
-
         for category_name, lw in self.category_lists.items():
             lw.clear()
             for comp_id in self.category_map.get(category_name, []):
                 comp = comp_by_id.get(comp_id)
                 if comp is None:
                     continue
-
                 item = QListWidgetItem(comp.label)
                 item.setData(Qt.UserRole, comp)
-
                 pm = load_symbol_pixmap(comp.pixmap_path, QSize(48, 48), QColor("black"))
                 if pm.isNull():
                     pm = QPixmap(48, 48)
@@ -824,14 +1002,37 @@ class ComponentPalette(QWidget):
                     p.setPen(QPen(QColor("#f0f0f0"), 2))
                     p.drawRoundedRect(4, 4, 40, 40, 6, 6)
                     p.end()
-
                 item.setIcon(QIcon(pm))
                 if comp.comp_id in self.favorite_ids:
                     item.setText(f"★ {comp.label}")
-
                 lw.addItem(item)
-
         self.apply_filter(self.search_edit.text())
+
+    def set_workspaces(self, workspace_names, active_name=None):
+        self.workspace_list.blockSignals(True)
+        try:
+            self.workspace_list.clear()
+            for name in workspace_names:
+                self.workspace_list.addItem(name)
+            if active_name:
+                matches = self.workspace_list.findItems(active_name, Qt.MatchExactly)
+                if matches:
+                    self.workspace_list.setCurrentItem(matches[0])
+                    self.workspace_list.scrollToItem(matches[0])
+        finally:
+            self.workspace_list.blockSignals(False)
+
+    def current_workspace_name(self):
+        item = self.workspace_list.currentItem()
+        return item.text() if item else None
+
+    def on_workspace_clicked(self, item):
+        if item:
+            self.workspaceActivated.emit(item.text())
+
+    def on_workspace_double_clicked(self, item):
+        if item:
+            self.workspaceActivated.emit(item.text())
 
     def show_component_context_menu(self, list_widget: QListWidget, pos):
         item = list_widget.itemAt(pos)
@@ -840,13 +1041,11 @@ class ComponentPalette(QWidget):
         comp = item.data(Qt.UserRole)
         if comp is None:
             return
-
         menu = QMenu(self)
         if comp.comp_id in self.favorite_ids:
             fav_action = menu.addAction("Aus Favoriten entfernen")
         else:
             fav_action = menu.addAction("Zu Favoriten hinzufügen")
-
         chosen = menu.exec_(list_widget.viewport().mapToGlobal(pos))
         if chosen == fav_action:
             if comp.comp_id in self.favorite_ids:
@@ -889,7 +1088,6 @@ class ComponentPalette(QWidget):
             item = QListWidgetItem(text_value)
             item.setData(Qt.UserRole, payload)
             self.connections_list.addItem(item)
-
         self.paths_list.clear()
         for text_value, payload in (path_rows or []):
             item = QListWidgetItem(text_value)
@@ -1760,6 +1958,8 @@ class SchematicSubWindow(QWidget):
                     "y": comp.pos().y(),
                     "rotation": comp.rotation(),
                     "scale": comp.scale(),
+                    "port_layout_mode": getattr(comp, "port_layout_mode", "default"),
+                    "custom_port_positions": getattr(comp, "custom_port_positions", {}),
                     "ports": [
                         {"name": p.name, "kind": p.kind, "x": p.x, "y": p.y}
                         for p in comp.comp_def.ports
@@ -1815,6 +2015,10 @@ class SchematicSubWindow(QWidget):
             self.scene.components.append(comp)
             comp.setRotation(comp_info.get("rotation", 0))
             comp.setScale(comp_info.get("scale", 1))
+            comp.port_layout_mode = comp_info.get("port_layout_mode", "default")
+            custom_positions = comp_info.get("custom_port_positions", {})
+            comp.custom_port_positions = {k: tuple(v) for k, v in custom_positions.items()}
+            comp.refresh_port_positions()
             comp_map[comp.uid] = comp
 
         for wire_info in data.get("wires", []):
@@ -2172,23 +2376,259 @@ class MainWindow(QMainWindow):
                  ComponentPort("OUT1", "out", DEFAULT_COMPONENT_WIDTH // 2, COMPONENT_HEIGHT - GRID // 2)],
                 (DEFAULT_COMPONENT_WIDTH, COMPONENT_HEIGHT)),
 
+            ComponentDef("white_led", "LED weiß", "svg/white_led.svg",
+                [ComponentPort("IN1", "in", GRID // 2, COMPONENT_HEIGHT // 2),
+                 ComponentPort("OUT1", "out", DEFAULT_COMPONENT_WIDTH - GRID // 2, COMPONENT_HEIGHT // 2)],
+                (DEFAULT_COMPONENT_WIDTH, COMPONENT_HEIGHT)),
+            ComponentDef("green_led", "LED grün", "svg/green_led.svg",
+                [ComponentPort("IN1", "in", GRID // 2, COMPONENT_HEIGHT // 2),
+                 ComponentPort("OUT1", "out", DEFAULT_COMPONENT_WIDTH - GRID // 2, COMPONENT_HEIGHT // 2)],
+                (DEFAULT_COMPONENT_WIDTH, COMPONENT_HEIGHT)),
+            ComponentDef("blue_led", "LED blau", "svg/blue_led.svg",
+                [ComponentPort("IN1", "in", GRID // 2, COMPONENT_HEIGHT // 2),
+                 ComponentPort("OUT1", "out", DEFAULT_COMPONENT_WIDTH - GRID // 2, COMPONENT_HEIGHT // 2)],
+                (DEFAULT_COMPONENT_WIDTH, COMPONENT_HEIGHT)),
+            ComponentDef("yellow_led", "LED gelb", "svg/yellow_led.svg",
+                [ComponentPort("IN1", "in", GRID // 2, COMPONENT_HEIGHT // 2),
+                 ComponentPort("OUT1", "out", DEFAULT_COMPONENT_WIDTH - GRID // 2, COMPONENT_HEIGHT // 2)],
+                (DEFAULT_COMPONENT_WIDTH, COMPONENT_HEIGHT)),
+            ComponentDef("dual_d_flipflop_4013", "Dual D Flip Flop (4013)", "svg/ic_dip14.svg",
+                [ComponentPort("1SET", "in", GRID // 2, GRID // 2),
+                 ComponentPort("1D", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("1CLK", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("1RST", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("2SET", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("2D", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("2CLK", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("1Q", "out", 230, GRID // 2),
+                 ComponentPort("1NQ", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("1VSS", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("2RST", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("2Q", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("2NQ", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("2VDD", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("ic_4014", "4014", "svg/ic_dip16.svg",
+                [ComponentPort("P1", "in", GRID // 2, GRID // 2),
+                 ComponentPort("P2", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("P3", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("P4", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("CLK", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("DATA", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("STR", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("Q6", "out", 230, GRID // 2),
+                 ComponentPort("Q7", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("VSS", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("P7", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("P8", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("Q8", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("VDD", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("ic_4017", "4017", "svg/ic_dip16.svg",
+                [ComponentPort("CLK", "in", GRID // 2, GRID // 2),
+                 ComponentPort("INH", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("RST", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("Q5", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("Q1", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("Q0", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("Q2", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("Q6", "out", 230, GRID // 2),
+                 ComponentPort("Q7", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("Q3", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("Q8", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("Q4", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("Q9", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("CO", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("ic_4020", "4020", "svg/ic_dip16.svg",
+                [ComponentPort("CLK", "in", GRID // 2, GRID // 2),
+                 ComponentPort("RST", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("Q11", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("Q5", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("Q4", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("Q6", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("Q3", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("Q12", "out", 230, GRID // 2),
+                 ComponentPort("Q13", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("Q14", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("Q7", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("Q8", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("Q9", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("Q10", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("ic_4026", "4026", "svg/ic_dip16.svg",
+                [ComponentPort("CLK", "in", GRID // 2, GRID // 2),
+                 ComponentPort("INH", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("DEI", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("DEO", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("CO", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("RST", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("CLKO", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("a-g", "out", 230, GRID // 2),
+                 ComponentPort("SEG1", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("SEG2", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("SEG3", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("SEG4", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("SEG5", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("SEG6", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("ic_4025", "4025", "svg/ic_dip14.svg",
+                [ComponentPort("A1", "in", GRID // 2, GRID // 2),
+                 ComponentPort("B1", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("C1", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("A2", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("B2", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("C2", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("Y1", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("Y2", "out", 230, GRID // 2),
+                 ComponentPort("A3", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("B3", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("C3", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("Y3", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("VSS", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("VDD", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("ic_4040", "4040", "svg/ic_dip16.svg",
+                [ComponentPort("CLK", "in", GRID // 2, GRID // 2),
+                 ComponentPort("RST", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("Q1", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("Q2", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("Q3", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("Q4", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("Q5", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("Q6", "out", 230, GRID // 2),
+                 ComponentPort("Q7", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("Q8", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("Q9", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("Q10", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("Q11", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("Q12", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("ic_4511", "4511", "svg/ic_dip16.svg",
+                [ComponentPort("A", "in", GRID // 2, GRID // 2),
+                 ComponentPort("B", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("C", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("D", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("LE", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("BI", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("LT", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("a", "out", 230, GRID // 2),
+                 ComponentPort("b", "out", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("c", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("d", "out", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("e", "out", 230, GRID // 2 + GRID * 8),
+                 ComponentPort("f", "out", 230, GRID // 2 + GRID * 10),
+                 ComponentPort("g", "out", 230, GRID // 2 + GRID * 12)],
+                (240, GRID * 14)),
+            ComponentDef("display7_single", "7-Segment einfach", "svg/display7_single.svg",
+                [ComponentPort("aL", "in", GRID // 2, GRID // 2),
+                 ComponentPort("bL", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("cL", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("dL", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("eL", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("aR", "in", 230, GRID // 2),
+                 ComponentPort("bR", "in", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("cR", "in", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("dR", "in", 230, GRID // 2 + GRID * 6),
+                 ComponentPort("eR", "in", 230, GRID // 2 + GRID * 8)],
+                (240, GRID * 10)),
+            ComponentDef("display7_double", "7-Segment doppelt", "svg/display7_double.svg",
+                [ComponentPort("L1", "in", GRID // 2, GRID // 2 + GRID * 0),
+                 ComponentPort("L2", "in", GRID // 2, GRID // 2 + GRID * 1),
+                 ComponentPort("L3", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("L4", "in", GRID // 2, GRID // 2 + GRID * 3),
+                 ComponentPort("L5", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("L6", "in", GRID // 2, GRID // 2 + GRID * 5),
+                 ComponentPort("L7", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("L8", "in", GRID // 2, GRID // 2 + GRID * 7),
+                 ComponentPort("L9", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("L10", "in", GRID // 2, GRID // 2 + GRID * 9),
+                 ComponentPort("R1", "in", 470, GRID // 2 + GRID * 0),
+                 ComponentPort("R2", "in", 470, GRID // 2 + GRID * 1),
+                 ComponentPort("R3", "in", 470, GRID // 2 + GRID * 2),
+                 ComponentPort("R4", "in", 470, GRID // 2 + GRID * 3),
+                 ComponentPort("R5", "in", 470, GRID // 2 + GRID * 4),
+                 ComponentPort("R6", "in", 470, GRID // 2 + GRID * 5),
+                 ComponentPort("R7", "in", 470, GRID // 2 + GRID * 6),
+                 ComponentPort("R8", "in", 470, GRID // 2 + GRID * 7),
+                 ComponentPort("R9", "in", 470, GRID // 2 + GRID * 8),
+                 ComponentPort("R10", "in", 470, GRID // 2 + GRID * 9)],
+                (480, GRID * 11)),
+            ComponentDef("display7_quad", "7-Segment vierfach", "svg/display7_quad.svg",
+                [ComponentPort("L1", "in", GRID // 2, GRID // 2 + GRID * 0),
+                 ComponentPort("L2", "in", GRID // 2, GRID // 2 + GRID * 1),
+                 ComponentPort("L3", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("L4", "in", GRID // 2, GRID // 2 + GRID * 3),
+                 ComponentPort("L5", "in", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("L6", "in", GRID // 2, GRID // 2 + GRID * 5),
+                 ComponentPort("L7", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("L8", "in", GRID // 2, GRID // 2 + GRID * 7),
+                 ComponentPort("L9", "in", GRID // 2, GRID // 2 + GRID * 8),
+                 ComponentPort("L10", "in", GRID // 2, GRID // 2 + GRID * 9),
+                 ComponentPort("L11", "in", GRID // 2, GRID // 2 + GRID * 10),
+                 ComponentPort("L12", "in", GRID // 2, GRID // 2 + GRID * 11),
+                 ComponentPort("L13", "in", GRID // 2, GRID // 2 + GRID * 12),
+                 ComponentPort("L14", "in", GRID // 2, GRID // 2 + GRID * 13),
+                 ComponentPort("L15", "in", GRID // 2, GRID // 2 + GRID * 14),
+                 ComponentPort("L16", "in", GRID // 2, GRID // 2 + GRID * 15),
+                 ComponentPort("L17", "in", GRID // 2, GRID // 2 + GRID * 16),
+                 ComponentPort("L18", "in", GRID // 2, GRID // 2 + GRID * 17),
+                 ComponentPort("L19", "in", GRID // 2, GRID // 2 + GRID * 18),
+                 ComponentPort("L20", "in", GRID // 2, GRID // 2 + GRID * 19),
+                 ComponentPort("R1", "in", 950, GRID // 2 + GRID * 0),
+                 ComponentPort("R2", "in", 950, GRID // 2 + GRID * 1),
+                 ComponentPort("R3", "in", 950, GRID // 2 + GRID * 2),
+                 ComponentPort("R4", "in", 950, GRID // 2 + GRID * 3),
+                 ComponentPort("R5", "in", 950, GRID // 2 + GRID * 4),
+                 ComponentPort("R6", "in", 950, GRID // 2 + GRID * 5),
+                 ComponentPort("R7", "in", 950, GRID // 2 + GRID * 6),
+                 ComponentPort("R8", "in", 950, GRID // 2 + GRID * 7),
+                 ComponentPort("R9", "in", 950, GRID // 2 + GRID * 8),
+                 ComponentPort("R10", "in", 950, GRID // 2 + GRID * 9),
+                 ComponentPort("R11", "in", 950, GRID // 2 + GRID * 10),
+                 ComponentPort("R12", "in", 950, GRID // 2 + GRID * 11),
+                 ComponentPort("R13", "in", 950, GRID // 2 + GRID * 12),
+                 ComponentPort("R14", "in", 950, GRID // 2 + GRID * 13),
+                 ComponentPort("R15", "in", 950, GRID // 2 + GRID * 14),
+                 ComponentPort("R16", "in", 950, GRID // 2 + GRID * 15),
+                 ComponentPort("R17", "in", 950, GRID // 2 + GRID * 16),
+                 ComponentPort("R18", "in", 950, GRID // 2 + GRID * 17),
+                 ComponentPort("R19", "in", 950, GRID // 2 + GRID * 18),
+                 ComponentPort("R20", "in", 950, GRID // 2 + GRID * 19)],
+                (960, GRID * 21)),
+            ComponentDef("ne555_timer", "NE555 IC Timer", "svg/ne555.svg",
+                [ComponentPort("GND", "in", GRID // 2, GRID // 2),
+                 ComponentPort("TRIG", "in", GRID // 2, GRID // 2 + GRID * 2),
+                 ComponentPort("OUT", "out", GRID // 2, GRID // 2 + GRID * 4),
+                 ComponentPort("RST", "in", GRID // 2, GRID // 2 + GRID * 6),
+                 ComponentPort("CTRL", "in", 230, GRID // 2),
+                 ComponentPort("THR", "in", 230, GRID // 2 + GRID * 2),
+                 ComponentPort("DIS", "out", 230, GRID // 2 + GRID * 4),
+                 ComponentPort("VCC", "out", 230, GRID // 2 + GRID * 6)],
+                (240, GRID * 8)),
+
         ]
 
-        self.mdi = QMdiArea()
-        self.mdi.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.mdi.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.setCentralWidget(self.mdi)
+        self.workspace_records = {}
+        self.workspace_clipboard = None
+        self.workspace_tabs = QTabWidget()
+        self.workspace_tabs.setTabsClosable(True)
+        self.workspace_tabs.setMovable(True)
+        self.workspace_tabs.currentChanged.connect(self.on_workspace_tab_changed)
+        self.workspace_tabs.tabCloseRequested.connect(self.close_workspace_tab)
+        self.workspace_tabs.tabBarDoubleClicked.connect(self.rename_workspace_tab_dialog)
+        self.setCentralWidget(self.workspace_tabs)
         self.setStatusBar(QStatusBar())
 
         self.create_actions()
         self.create_menus()
         self.create_toolbars()
         self.create_dock()
-        self.new_document()
+        self.add_workspace("Unbenannt")
 
     def active_editor(self) -> Optional[SchematicSubWindow]:
-        sub = self.mdi.activeSubWindow()
-        return sub.widget() if sub else None
+        widget = self.workspace_tabs.currentWidget()
+        return widget if isinstance(widget, SchematicSubWindow) else None
 
     def create_actions(self):
         style = self.style()
@@ -2219,8 +2659,8 @@ class MainWindow(QMainWindow):
         self.act_open.triggered.connect(self.open_document)
         self.act_save.triggered.connect(self.save_document)
         self.act_save_as.triggered.connect(self.save_document_as)
-        self.act_cascade.triggered.connect(self.mdi.cascadeSubWindows)
-        self.act_tile.triggered.connect(self.mdi.tileSubWindows)
+        self.act_cascade.triggered.connect(lambda: None)
+        self.act_tile.triggered.connect(lambda: None)
         self.act_about.triggered.connect(self.show_about)
         self.act_mode_select.triggered.connect(self.mode_select)
         self.act_mode_wire.triggered.connect(self.mode_wire)
@@ -2265,8 +2705,135 @@ class MainWindow(QMainWindow):
         self.palette.componentSelected.connect(self.component_selected)
         self.palette.librarySelected.connect(self.library_selected)
         self.palette.connectionActivated.connect(self.connection_selected)
+        self.palette.workspaceAddRequested.connect(self.add_workspace_dialog)
+        self.palette.workspaceCopyRequested.connect(self.copy_workspace)
+        self.palette.workspacePasteRequested.connect(self.paste_workspace)
+        self.palette.workspaceDeleteRequested.connect(self.delete_current_workspace)
+        self.palette.workspaceActivated.connect(self.open_workspace_by_name)
         self.dock.setWidget(self.palette)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.dock)
+
+
+    def refresh_workspace_list(self, active_name=None):
+        names = list(self.workspace_records.keys())
+        if active_name is None:
+            editor = self.active_editor()
+            if editor:
+                active_name = getattr(editor, "workspace_name", None)
+        self.palette.set_workspaces(names, active_name)
+
+    def create_workspace_editor(self, name: str):
+        editor = SchematicSubWindow(self.db, self.palette, self.component_defs, self)
+        editor.workspace_name = name
+        return editor
+
+    def add_workspace_dialog(self):
+        name, ok = QInputDialog.getText(self, "Arbeitsfläche hinzufügen", "Name der Arbeitsfläche:")
+        if not ok or not str(name).strip():
+            return
+        self.add_workspace(str(name).strip())
+
+    def add_workspace(self, name: str, serialized=None, open_now=True):
+        if name in self.workspace_records:
+            if open_now:
+                self.open_workspace_by_name(name)
+            return False
+        self.workspace_records[name] = {"serialized": serialized or None, "open": False}
+        if open_now:
+            self.open_workspace_by_name(name)
+        self.refresh_workspace_list(name)
+        return True
+
+    def open_workspace_by_name(self, name: str):
+        if name not in self.workspace_records:
+            return
+        for i in range(self.workspace_tabs.count()):
+            w = self.workspace_tabs.widget(i)
+            if getattr(w, "workspace_name", None) == name:
+                self.workspace_tabs.setCurrentIndex(i)
+                self.refresh_workspace_list(name)
+                return
+        editor = self.create_workspace_editor(name)
+        serialized = self.workspace_records[name].get("serialized")
+        if serialized:
+            tmp = Path("/mnt/data/__workspace_tmp.plan")
+            tmp.write_text(json.dumps(serialized, ensure_ascii=False), encoding="utf-8")
+            editor.load_from_file(str(tmp))
+            tmp.unlink(missing_ok=True)
+        idx = self.workspace_tabs.addTab(editor, name)
+        self.workspace_tabs.setCurrentIndex(idx)
+        self.workspace_records[name]["open"] = True
+        self.refresh_workspace_list(name)
+        editor.refresh_connections_view()
+
+    def snapshot_editor_to_record(self, editor):
+        if editor and getattr(editor, "workspace_name", None) in self.workspace_records:
+            self.workspace_records[editor.workspace_name]["serialized"] = editor.serialize_model()
+
+    def on_workspace_tab_changed(self, index):
+        editor = self.active_editor()
+        if editor:
+            self.refresh_workspace_list(editor.workspace_name)
+            self.mode_select()
+
+    def close_workspace_tab(self, index):
+        widget = self.workspace_tabs.widget(index)
+        if not widget:
+            return
+        self.snapshot_editor_to_record(widget)
+        name = getattr(widget, "workspace_name", None)
+        self.workspace_tabs.removeTab(index)
+        if name in self.workspace_records:
+            self.workspace_records[name]["open"] = False
+        widget.deleteLater()
+        self.refresh_workspace_list()
+
+    def rename_workspace_tab_dialog(self, index):
+        if index < 0:
+            return
+        widget = self.workspace_tabs.widget(index)
+        if not widget:
+            return
+        old_name = getattr(widget, "workspace_name", "")
+        new_name, ok = QInputDialog.getText(self, "Arbeitsfläche umbenennen", "Neuer Name:", text=old_name)
+        if not ok or not str(new_name).strip():
+            return
+        new_name = str(new_name).strip()
+        if new_name == old_name:
+            return
+        if new_name in self.workspace_records:
+            QMessageBox.warning(self, "Name existiert", "Eine Arbeitsfläche mit diesem Namen ist bereits vorhanden.")
+            return
+        self.workspace_records[new_name] = self.workspace_records.pop(old_name)
+        widget.workspace_name = new_name
+        self.workspace_tabs.setTabText(index, new_name)
+        self.refresh_workspace_list(new_name)
+
+    def copy_workspace(self):
+        editor = self.active_editor()
+        if not editor:
+            return
+        self.workspace_clipboard = editor.serialize_model()
+        self.statusBar().showMessage(f"Arbeitsfläche kopiert: {editor.workspace_name}", 2500)
+
+    def paste_workspace(self):
+        if not self.workspace_clipboard:
+            return
+        name, ok = QInputDialog.getText(self, "Arbeitsfläche einfügen", "Name der neuen Arbeitsfläche:")
+        if not ok or not str(name).strip():
+            return
+        self.add_workspace(str(name).strip(), serialized=self.workspace_clipboard, open_now=True)
+
+    def delete_current_workspace(self):
+        editor = self.active_editor()
+        if not editor:
+            return
+        name = editor.workspace_name
+        self.workspace_tabs.removeTab(self.workspace_tabs.currentIndex())
+        if name in self.workspace_records:
+            del self.workspace_records[name]
+        editor.deleteLater()
+        self.refresh_workspace_list()
 
     def component_selected(self, comp_def: ComponentDef):
         editor = self.active_editor()
@@ -2287,15 +2854,7 @@ class MainWindow(QMainWindow):
             editor.scene.select_connection_entry(payload)
 
     def new_document(self):
-        editor = SchematicSubWindow(self.db, self.palette, self.component_defs, self)
-        sub = QMdiSubWindow()
-        sub.setWidget(editor)
-        sub.setAttribute(Qt.WA_DeleteOnClose)
-        sub.setWindowTitle("Schaltplan")
-        self.mdi.addSubWindow(sub)
-        sub.showMaximized()
-        self.mode_select()
-        editor.refresh_connections_view()
+        self.add_workspace_dialog()
 
     def save_document(self):
         editor = self.active_editor()
@@ -2320,9 +2879,15 @@ class MainWindow(QMainWindow):
         if not filename:
             return
         editor.save_to_file(filename)
-        sub = self.mdi.activeSubWindow()
-        if sub:
-            sub.setWindowTitle(Path(filename).name)
+        editor.workspace_name = Path(filename).stem
+        current_index = self.workspace_tabs.currentIndex()
+        if current_index >= 0:
+            self.workspace_tabs.setTabText(current_index, editor.workspace_name)
+            if editor.workspace_name not in self.workspace_records:
+                self.workspace_records[editor.workspace_name] = {"serialized": editor.serialize_model(), "open": True}
+            else:
+                self.workspace_records[editor.workspace_name]["serialized"] = editor.serialize_model()
+            self.refresh_workspace_list(editor.workspace_name)
         self.statusBar().showMessage(f"Modell gespeichert: {filename}", 4000)
 
     def open_document(self):
@@ -2334,14 +2899,16 @@ class MainWindow(QMainWindow):
         )
         if not filename:
             return
-        editor = SchematicSubWindow(self.db, self.palette, self.component_defs, self)
+        name = Path(filename).stem
+        if name in self.workspace_records:
+            self.open_workspace_by_name(name)
+            return
+        editor = self.create_workspace_editor(name)
         editor.load_from_file(filename)
-        sub = QMdiSubWindow()
-        sub.setWidget(editor)
-        sub.setAttribute(Qt.WA_DeleteOnClose)
-        sub.setWindowTitle(Path(filename).name)
-        self.mdi.addSubWindow(sub)
-        sub.showMaximized()
+        self.workspace_records[name] = {"serialized": editor.serialize_model(), "open": True}
+        idx = self.workspace_tabs.addTab(editor, name)
+        self.workspace_tabs.setCurrentIndex(idx)
+        self.refresh_workspace_list(name)
         self.statusBar().showMessage(f"Modell geladen: {filename}", 4000)
 
     def mode_select(self):
