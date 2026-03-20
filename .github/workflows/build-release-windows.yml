@@ -41,17 +41,13 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $version = python -c "import pathlib, re; text = pathlib.Path('version.py').read_text(encoding='utf-8'); m = re.search(r'__version__\s*=\s*[\"'\"'\"']([^\"'\"'\"']+)[\"'\"'\"']', text); print(m.group(1) if m else '')"
-          if (-not $version) {
-            Write-Error "Keine __version__ in version.py gefunden."
-            exit 1
-          }
+          $lines = python scripts/read_version.py
+          $version = $lines[0]
+          $appName = $lines[1]
 
-          $appName = python -c "import pathlib, re; text = pathlib.Path('version.py').read_text(encoding='utf-8'); m = re.search(r'APP_NAME\s*=\s*[\"'\"'\"']([^\"'\"'\"']+)[\"'\"'\"']', text); print(m.group(1) if m else 'Qt5PythonApp')"
-
-          echo "VERSION=$version"  >> $env:GITHUB_ENV
+          echo "VERSION=$version" >> $env:GITHUB_ENV
           echo "APP_NAME=$appName" >> $env:GITHUB_ENV
-          echo "TAG=v$version"     >> $env:GITHUB_ENV
+          echo "TAG=v$version" >> $env:GITHUB_ENV
 
       - name: Build mit PyInstaller
         shell: pwsh
