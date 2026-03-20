@@ -1,7 +1,7 @@
 from pathlib import Path
 
 namespace = {}
-code = Path("../version.py").read_text(encoding="utf-8")
+code = Path("version.py").read_text(encoding="utf-8")
 exec(code, namespace)
 
 version = namespace.get("__version__")
