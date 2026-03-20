@@ -588,23 +588,33 @@ class ComponentItem(QGraphicsPixmapItem):
 
         names = self.all_port_names()
         if mode == "left":
-            step = GRID * 2 if self.comp_def.comp_id == "display7_single" else GRID
+            step = GRID
             for i, name in enumerate(names):
                 self.custom_port_positions[name] = (GRID // 2, GRID // 2 + i * step)
         elif mode == "right":
-            step = GRID * 2 if self.comp_def.comp_id == "display7_single" else GRID
+            step = GRID
             for i, name in enumerate(names):
                 self.custom_port_positions[name] = (width - GRID // 2, GRID // 2 + i * step)
         elif mode == "top":
-            usable = max(1, len(names))
-            step = max(GRID, int((width - GRID) / usable))
-            for i, name in enumerate(names):
-                self.custom_port_positions[name] = (GRID // 2 + i * step, GRID // 2)
+            half = len(names) // 2
+            top_names = names[:half]
+            bottom_names = names[half:]
+            top_step = max(GRID, int((width - GRID) / max(1, len(top_names))))
+            bottom_step = max(GRID, int((width - GRID) / max(1, len(bottom_names))))
+            for i, name in enumerate(top_names):
+                self.custom_port_positions[name] = (GRID // 2 + i * top_step, GRID // 2)
+            for i, name in enumerate(bottom_names):
+                self.custom_port_positions[name] = (GRID // 2 + i * bottom_step, height - GRID // 2)
         elif mode == "bottom":
-            usable = max(1, len(names))
-            step = max(GRID, int((width - GRID) / usable))
-            for i, name in enumerate(names):
-                self.custom_port_positions[name] = (GRID // 2 + i * step, height - GRID // 2)
+            half = len(names) // 2
+            top_names = names[:half]
+            bottom_names = names[half:]
+            top_step = max(GRID, int((width - GRID) / max(1, len(top_names))))
+            bottom_step = max(GRID, int((width - GRID) / max(1, len(bottom_names))))
+            for i, name in enumerate(bottom_names):
+                self.custom_port_positions[name] = (GRID // 2 + i * bottom_step, height - GRID // 2)
+            for i, name in enumerate(top_names):
+                self.custom_port_positions[name] = (GRID // 2 + i * top_step, GRID // 2)
         self.refresh_port_positions()
         self.scene_ref.update_component_links(self)
         self.scene_ref.refresh_after_geometry_change()
@@ -2521,81 +2531,81 @@ class MainWindow(QMainWindow):
                  ComponentPort("g", "out", 230, GRID // 2 + GRID * 12)],
                 (240, GRID * 14)),
             ComponentDef("display7_single", "7-Segment einfach", "svg/display7_single.svg",
-                [ComponentPort("aL", "in", GRID // 2, GRID // 2),
-                 ComponentPort("bL", "in", GRID // 2, GRID // 2 + GRID * 2),
-                 ComponentPort("cL", "in", GRID // 2, GRID // 2 + GRID * 4),
-                 ComponentPort("dL", "in", GRID // 2, GRID // 2 + GRID * 6),
-                 ComponentPort("eL", "in", GRID // 2, GRID // 2 + GRID * 8),
-                 ComponentPort("aR", "in", 230, GRID // 2),
-                 ComponentPort("bR", "in", 230, GRID // 2 + GRID * 2),
-                 ComponentPort("cR", "in", 230, GRID // 2 + GRID * 4),
-                 ComponentPort("dR", "in", 230, GRID // 2 + GRID * 6),
-                 ComponentPort("eR", "in", 230, GRID // 2 + GRID * 8)],
+                [ComponentPort("a", "in", GRID // 2, GRID // 2),
+                 ComponentPort("b", "in", GRID // 2 + GRID * 2, GRID // 2),
+                 ComponentPort("c", "in", GRID // 2 + GRID * 4, GRID // 2),
+                 ComponentPort("d", "in", GRID // 2 + GRID * 6, GRID // 2),
+                 ComponentPort("e", "in", GRID // 2 + GRID * 8, GRID // 2),
+                 ComponentPort("f", "in", GRID // 2, GRID * 9 + GRID // 2),
+                 ComponentPort("g", "in", GRID // 2 + GRID * 2, GRID * 9 + GRID // 2),
+                 ComponentPort("dp", "in", GRID // 2 + GRID * 4, GRID * 9 + GRID // 2),
+                 ComponentPort("gnd1", "in", GRID // 2 + GRID * 6, GRID * 9 + GRID // 2),
+                 ComponentPort("gnd2", "in", GRID // 2 + GRID * 8, GRID * 9 + GRID // 2)],
                 (240, GRID * 10)),
             ComponentDef("display7_double", "7-Segment doppelt", "svg/display7_double.svg",
-                [ComponentPort("L1", "in", GRID // 2, GRID // 2 + GRID * 0),
-                 ComponentPort("L2", "in", GRID // 2, GRID // 2 + GRID * 1),
-                 ComponentPort("L3", "in", GRID // 2, GRID // 2 + GRID * 2),
-                 ComponentPort("L4", "in", GRID // 2, GRID // 2 + GRID * 3),
-                 ComponentPort("L5", "in", GRID // 2, GRID // 2 + GRID * 4),
-                 ComponentPort("L6", "in", GRID // 2, GRID // 2 + GRID * 5),
-                 ComponentPort("L7", "in", GRID // 2, GRID // 2 + GRID * 6),
-                 ComponentPort("L8", "in", GRID // 2, GRID // 2 + GRID * 7),
-                 ComponentPort("L9", "in", GRID // 2, GRID // 2 + GRID * 8),
-                 ComponentPort("L10", "in", GRID // 2, GRID // 2 + GRID * 9),
-                 ComponentPort("R1", "in", 470, GRID // 2 + GRID * 0),
-                 ComponentPort("R2", "in", 470, GRID // 2 + GRID * 1),
-                 ComponentPort("R3", "in", 470, GRID // 2 + GRID * 2),
-                 ComponentPort("R4", "in", 470, GRID // 2 + GRID * 3),
-                 ComponentPort("R5", "in", 470, GRID // 2 + GRID * 4),
-                 ComponentPort("R6", "in", 470, GRID // 2 + GRID * 5),
-                 ComponentPort("R7", "in", 470, GRID // 2 + GRID * 6),
-                 ComponentPort("R8", "in", 470, GRID // 2 + GRID * 7),
-                 ComponentPort("R9", "in", 470, GRID // 2 + GRID * 8),
-                 ComponentPort("R10", "in", 470, GRID // 2 + GRID * 9)],
+                [ComponentPort("a1", "in", GRID // 2, GRID // 2),
+                 ComponentPort("b1", "in", GRID // 2 + GRID * 2, GRID // 2),
+                 ComponentPort("c1", "in", GRID // 2 + GRID * 4, GRID // 2),
+                 ComponentPort("d1", "in", GRID // 2 + GRID * 6, GRID // 2),
+                 ComponentPort("e1", "in", GRID // 2 + GRID * 8, GRID // 2),
+                 ComponentPort("f1", "in", GRID // 2, GRID * 10 + GRID // 2),
+                 ComponentPort("g1", "in", GRID // 2 + GRID * 2, GRID * 10 + GRID // 2),
+                 ComponentPort("dp1", "in", GRID // 2 + GRID * 4, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd11", "in", GRID // 2 + GRID * 6, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd12", "in", GRID // 2 + GRID * 8, GRID * 10 + GRID // 2),
+                 ComponentPort("a2", "in", 480 - GRID // 2 - GRID * 8, GRID // 2),
+                 ComponentPort("b2", "in", 480 - GRID // 2 - GRID * 6, GRID // 2),
+                 ComponentPort("c2", "in", 480 - GRID // 2 - GRID * 4, GRID // 2),
+                 ComponentPort("d2", "in", 480 - GRID // 2 - GRID * 2, GRID // 2),
+                 ComponentPort("e2", "in", 480 - GRID // 2, GRID // 2),
+                 ComponentPort("f2", "in", 480 - GRID // 2 - GRID * 8, GRID * 10 + GRID // 2),
+                 ComponentPort("g2", "in", 480 - GRID // 2 - GRID * 6, GRID * 10 + GRID // 2),
+                 ComponentPort("dp2", "in", 480 - GRID // 2 - GRID * 4, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd21", "in", 480 - GRID // 2 - GRID * 6, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd22", "in", 480 - GRID // 2 - GRID * 2, GRID * 10 + GRID // 2)],
                 (480, GRID * 11)),
             ComponentDef("display7_quad", "7-Segment vierfach", "svg/display7_quad.svg",
-                [ComponentPort("L1", "in", GRID // 2, GRID // 2 + GRID * 0),
-                 ComponentPort("L2", "in", GRID // 2, GRID // 2 + GRID * 1),
-                 ComponentPort("L3", "in", GRID // 2, GRID // 2 + GRID * 2),
-                 ComponentPort("L4", "in", GRID // 2, GRID // 2 + GRID * 3),
-                 ComponentPort("L5", "in", GRID // 2, GRID // 2 + GRID * 4),
-                 ComponentPort("L6", "in", GRID // 2, GRID // 2 + GRID * 5),
-                 ComponentPort("L7", "in", GRID // 2, GRID // 2 + GRID * 6),
-                 ComponentPort("L8", "in", GRID // 2, GRID // 2 + GRID * 7),
-                 ComponentPort("L9", "in", GRID // 2, GRID // 2 + GRID * 8),
-                 ComponentPort("L10", "in", GRID // 2, GRID // 2 + GRID * 9),
-                 ComponentPort("L11", "in", GRID // 2, GRID // 2 + GRID * 10),
-                 ComponentPort("L12", "in", GRID // 2, GRID // 2 + GRID * 11),
-                 ComponentPort("L13", "in", GRID // 2, GRID // 2 + GRID * 12),
-                 ComponentPort("L14", "in", GRID // 2, GRID // 2 + GRID * 13),
-                 ComponentPort("L15", "in", GRID // 2, GRID // 2 + GRID * 14),
-                 ComponentPort("L16", "in", GRID // 2, GRID // 2 + GRID * 15),
-                 ComponentPort("L17", "in", GRID // 2, GRID // 2 + GRID * 16),
-                 ComponentPort("L18", "in", GRID // 2, GRID // 2 + GRID * 17),
-                 ComponentPort("L19", "in", GRID // 2, GRID // 2 + GRID * 18),
-                 ComponentPort("L20", "in", GRID // 2, GRID // 2 + GRID * 19),
-                 ComponentPort("R1", "in", 950, GRID // 2 + GRID * 0),
-                 ComponentPort("R2", "in", 950, GRID // 2 + GRID * 1),
-                 ComponentPort("R3", "in", 950, GRID // 2 + GRID * 2),
-                 ComponentPort("R4", "in", 950, GRID // 2 + GRID * 3),
-                 ComponentPort("R5", "in", 950, GRID // 2 + GRID * 4),
-                 ComponentPort("R6", "in", 950, GRID // 2 + GRID * 5),
-                 ComponentPort("R7", "in", 950, GRID // 2 + GRID * 6),
-                 ComponentPort("R8", "in", 950, GRID // 2 + GRID * 7),
-                 ComponentPort("R9", "in", 950, GRID // 2 + GRID * 8),
-                 ComponentPort("R10", "in", 950, GRID // 2 + GRID * 9),
-                 ComponentPort("R11", "in", 950, GRID // 2 + GRID * 10),
-                 ComponentPort("R12", "in", 950, GRID // 2 + GRID * 11),
-                 ComponentPort("R13", "in", 950, GRID // 2 + GRID * 12),
-                 ComponentPort("R14", "in", 950, GRID // 2 + GRID * 13),
-                 ComponentPort("R15", "in", 950, GRID // 2 + GRID * 14),
-                 ComponentPort("R16", "in", 950, GRID // 2 + GRID * 15),
-                 ComponentPort("R17", "in", 950, GRID // 2 + GRID * 16),
-                 ComponentPort("R18", "in", 950, GRID // 2 + GRID * 17),
-                 ComponentPort("R19", "in", 950, GRID // 2 + GRID * 18),
-                 ComponentPort("R20", "in", 950, GRID // 2 + GRID * 19)],
-                (960, GRID * 21)),
+                [ComponentPort("a1", "in", 0 + GRID // 2, GRID // 2),
+                 ComponentPort("b1", "in", 0 + GRID // 2 + GRID * 2, GRID // 2),
+                 ComponentPort("c1", "in", 0 + GRID // 2 + GRID * 4, GRID // 2),
+                 ComponentPort("d1", "in", 0 + GRID // 2 + GRID * 6, GRID // 2),
+                 ComponentPort("e1", "in", 0 + GRID // 2 + GRID * 8, GRID // 2),
+                 ComponentPort("f1", "in", 0 + GRID // 2, GRID * 10 + GRID // 2),
+                 ComponentPort("g1", "in", 0 + GRID // 2 + GRID * 2, GRID * 10 + GRID // 2),
+                 ComponentPort("dp1", "in", 0 + GRID // 2 + GRID * 4, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd11", "in", 0 + GRID // 2 + GRID * 6, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd12", "in", 0 + GRID // 2 + GRID * 8, GRID * 10 + GRID // 2),
+                 ComponentPort("a2", "in", 240 + GRID // 2, GRID // 2),
+                 ComponentPort("b2", "in", 240 + GRID // 2 + GRID * 2, GRID // 2),
+                 ComponentPort("c2", "in", 240 + GRID // 2 + GRID * 4, GRID // 2),
+                 ComponentPort("d2", "in", 240 + GRID // 2 + GRID * 6, GRID // 2),
+                 ComponentPort("e2", "in", 240 + GRID // 2 + GRID * 8, GRID // 2),
+                 ComponentPort("f2", "in", 240 + GRID // 2, GRID * 10 + GRID // 2),
+                 ComponentPort("g2", "in", 240 + GRID // 2 + GRID * 2, GRID * 10 + GRID // 2),
+                 ComponentPort("dp2", "in", 240 + GRID // 2 + GRID * 4, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd21", "in", 240 + GRID // 2 + GRID * 6, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd22", "in", 240 + GRID // 2 + GRID * 8, GRID * 10 + GRID // 2),
+                 ComponentPort("a3", "in", 480 + GRID // 2, GRID // 2),
+                 ComponentPort("b3", "in", 480 + GRID // 2 + GRID * 2, GRID // 2),
+                 ComponentPort("c3", "in", 480 + GRID // 2 + GRID * 4, GRID // 2),
+                 ComponentPort("d3", "in", 480 + GRID // 2 + GRID * 6, GRID // 2),
+                 ComponentPort("e3", "in", 480 + GRID // 2 + GRID * 8, GRID // 2),
+                 ComponentPort("f3", "in", 480 + GRID // 2, GRID * 10 + GRID // 2),
+                 ComponentPort("g3", "in", 480 + GRID // 2 + GRID * 2, GRID * 10 + GRID // 2),
+                 ComponentPort("dp3", "in", 480 + GRID // 2 + GRID * 4, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd31", "in", 480 + GRID // 2 + GRID * 6, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd32", "in", 480 + GRID // 2 + GRID * 8, GRID * 10 + GRID // 2),
+                 ComponentPort("a4", "in", 720 + GRID // 2, GRID // 2),
+                 ComponentPort("b4", "in", 720 + GRID // 2 + GRID * 2, GRID // 2),
+                 ComponentPort("c4", "in", 720 + GRID // 2 + GRID * 4, GRID // 2),
+                 ComponentPort("d4", "in", 720 + GRID // 2 + GRID * 6, GRID // 2),
+                 ComponentPort("e4", "in", 720 + GRID // 2 + GRID * 8, GRID // 2),
+                 ComponentPort("f4", "in", 720 + GRID // 2, GRID * 10 + GRID // 2),
+                 ComponentPort("g4", "in", 720 + GRID // 2 + GRID * 2, GRID * 10 + GRID // 2),
+                 ComponentPort("dp4", "in", 720 + GRID // 2 + GRID * 4, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd41", "in", 720 + GRID // 2 + GRID * 6, GRID * 10 + GRID // 2),
+                 ComponentPort("gnd42", "in", 720 + GRID // 2 + GRID * 8, GRID * 10 + GRID // 2)],
+                (960, GRID * 11)),
             ComponentDef("ne555_timer", "NE555 IC Timer", "svg/ne555.svg",
                 [ComponentPort("GND", "in", GRID // 2, GRID // 2),
                  ComponentPort("TRIG", "in", GRID // 2, GRID // 2 + GRID * 2),
