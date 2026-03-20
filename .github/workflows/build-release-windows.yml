@@ -1,0 +1,101 @@
+name: Build and Release Windows Qt5 App
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Soll ein GitHub Release erstellt werden?"
+        required: true
+        type: boolean
+        default: true
+      python_version:
+        description: "Python-Version"
+        required: true
+        default: "3.12"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Abhängigkeiten installieren
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Version aus version.py lesen
+        id: version
+        shell: pwsh
+        run: |
+          $version = python -c "import pathlib, re; text = pathlib.Path('version.py').read_text(encoding='utf-8'); m = re.search(r'__version__\s*=\s*[\"'\"'\"']([^\"'\"'\"']+)[\"'\"'\"']', text); print(m.group(1) if m else '')"
+          if (-not $version) {
+            Write-Error "Keine __version__ in version.py gefunden."
+            exit 1
+          }
+
+          $appName = python -c "import pathlib, re; text = pathlib.Path('version.py').read_text(encoding='utf-8'); m = re.search(r'APP_NAME\s*=\s*[\"'\"'\"']([^\"'\"'\"']+)[\"'\"'\"']', text); print(m.group(1) if m else 'Qt5PythonApp')"
+
+          echo "VERSION=$version"  >> $env:GITHUB_ENV
+          echo "APP_NAME=$appName" >> $env:GITHUB_ENV
+          echo "TAG=v$version"     >> $env:GITHUB_ENV
+
+      - name: Build mit PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --name "$env:APP_NAME" `
+            --collect-all PyQt5 `
+            src/schaltplan.py
+
+      - name: ZIP-Paket erzeugen
+        shell: pwsh
+        run: |
+          $zipName = "$env:APP_NAME-$env:VERSION-windows.zip"
+          Compress-Archive -Path "dist/$env:APP_NAME/*" -DestinationPath $zipName -Force
+          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Build-Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ env.VERSION }}-windows
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      - name: Git-Tag prüfen
+        if: ${{ inputs.create_release }}
+        shell: pwsh
+        run: |
+          git fetch --tags
+          $existingTag = git tag -l "$env:TAG"
+          if ($existingTag) {
+            Write-Error "Tag $env:TAG existiert bereits."
+            exit 1
+          }
+
+      - name: Release erzeugen
+        if: ${{ inputs.create_release }}
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$env:TAG" `
+            "$env:ZIP_NAME" `
+            --title "$env:APP_NAME $env:TAG" `
+            --notes "Automatisch erstelltes Release für Version $env:VERSION"
